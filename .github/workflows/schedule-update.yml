@@ -26,11 +26,17 @@ jobs:
         NEIS_KEY: ${{ secrets.NEIS_KEY }}
         ATPT_OFCDC_SC_CODE: ${{ secrets.ATPT_OFCDC_SC_CODE }}
         SD_SCHUL_CODE: ${{ secrets.SD_SCHUL_CODE }}
-      run: node calendar-generator.js
+      run: |
+        echo "시크릿 키가 설정되었는지 확인합니다..."
+        if [ -z "$NEIS_API_URL" ] || [ -z "$NEIS_KEY" ] || [ -z "$ATPT_OFCDC_SC_CODE" ] || [ -z "$SD_SCHUL_CODE" ]; then
+          echo "Error: 필수 시크릿 키가 설정되지 않았습니다."
+          exit 1
+        fi
+        node calendar-generator.js
         
     - name: Commit and push if changed
       run: |
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
-        git add schedule.ics
+        git add calendar.ics
         git diff --quiet && git diff --staged --quiet || (git commit -m "Update school schedule" && git push)
