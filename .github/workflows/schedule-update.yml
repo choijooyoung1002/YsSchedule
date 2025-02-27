@@ -1,0 +1,36 @@
+name: Update School Schedule
+
+on:
+  schedule:
+    - cron: '0 0 * * 0'  # 매주 일요일 00:00 UTC에 실행
+  workflow_dispatch:      # 수동 실행 가능
+
+jobs:
+  update-schedule:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v2
+    
+    - name: Set up Node.js
+      uses: actions/setup-node@v2
+      with:
+        node-version: '16'
+        
+    - name: Install dependencies
+      run: npm install
+        
+    - name: Run schedule update
+      env:
+        NEIS_API_URL: ${{ secrets.NEIS_API_URL }}
+        NEIS_KEY: ${{ secrets.NEIS_KEY }}
+        ATPT_OFCDC_SC_CODE: ${{ secrets.ATPT_OFCDC_SC_CODE }}
+        SD_SCHUL_CODE: ${{ secrets.SD_SCHUL_CODE }}
+      run: node calendar-generator.js
+        
+    - name: Commit and push if changed
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add schedule.ics
+        git diff --quiet && git diff --staged --quiet || (git commit -m "Update school schedule" && git push)
