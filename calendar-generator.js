@@ -20,8 +20,8 @@ class CalendarGenerator {
     // 반복 이벤트 패턴 (예: 토요휴업일, 방학 등)
     this.recurringEvents = {};
     
-    // 필터링할 이벤트명 목록
-    this.filteredEvents = ['토요휴업일', '일요휴업일'];
+    // 필터링을 비활성화 (모든 이벤트 포함)
+    this.filteredEvents = ["토토요휴업일","일요휴업일"]; // 빈 배열로 변경하여 필터링 비활성화
   }
 
   /**
@@ -49,15 +49,16 @@ class CalendarGenerator {
       }
       this.eventsByDate[dateString].push(item);
       
-      // 반복 패턴 감지 (예: 여름방학)
-      if (item.EVENT_NM === '여름방학') {
-        if (!this.recurringEvents['여름방학']) {
-          this.recurringEvents['여름방학'] = {
-            summary: '여름방학',
+      // 방학 패턴 감지 (여름방학, 겨울방학 등)
+      if (item.EVENT_NM.includes('방학') && !item.EVENT_NM.includes('방학식')) {
+        const eventType = item.EVENT_NM;
+        if (!this.recurringEvents[eventType]) {
+          this.recurringEvents[eventType] = {
+            summary: eventType,
             dates: []
           };
         }
-        this.recurringEvents['여름방학'].dates.push(dateString);
+        this.recurringEvents[eventType].dates.push(dateString);
       }
     }
     
@@ -81,22 +82,13 @@ class CalendarGenerator {
       
       // 같은 날짜에 여러 이벤트가 있는 경우 처리
       if (events.length > 1) {
-        // 특별한 처리가 필요한지 확인 (동일 이벤트 타입 등)
-        const isAllSameType = events.every(e => this.getEventCategory(e) === this.getEventCategory(events[0]));
-        
-        // 카테고리가 모두 같으면 하나의 이벤트로 합치기
-        if (isAllSameType) {
-          this.createCombinedEvent(dateString, events);
+        // 모든 이벤트를 개별적으로 추가 (그룹화하지 않음)
+        for (const event of events) {
+          // 반복 이벤트에 포함된 경우 스킵
+          if (this.isPartOfRecurringEvent(event)) continue;
+          
+          this.createSingleEvent(dateString, event);
           eventCount++;
-        } else {
-          // 다른 카테고리면 별도 이벤트로 생성
-          for (const event of events) {
-            // 반복 이벤트에 포함된 경우 스킵
-            if (this.isPartOfRecurringEvent(event)) continue;
-            
-            this.createSingleEvent(dateString, event);
-            eventCount++;
-          }
         }
       } else if (events.length === 1) {
         // 반복 이벤트에 포함된 경우 스킵
@@ -175,46 +167,50 @@ class CalendarGenerator {
    * 반복 이벤트 처리
    */
   createRecurringEvents() {
-    // 방학 기간 처리
-    if (this.recurringEvents['여름방학'] && this.recurringEvents['여름방학'].dates.length >= 3) {
-      try {
-        // 날짜 정렬
-        const dates = this.recurringEvents['여름방학'].dates.sort();
-        
-        // 시작 날짜
-        const startDateStr = dates[0];
-        const startYear = parseInt(startDateStr.substring(0, 4));
-        const startMonth = parseInt(startDateStr.substring(4, 6)) - 1;
-        const startDay = parseInt(startDateStr.substring(6, 8));
-        
-        // 종료 날짜
-        const endDateStr = dates[dates.length - 1];
-        const endYear = parseInt(endDateStr.substring(0, 4));
-        const endMonth = parseInt(endDateStr.substring(4, 6)) - 1;
-        const endDay = parseInt(endDateStr.substring(6, 8));
-        
-        const startDate = new Date(startYear, startMonth, startDay);
-        const endDate = new Date(endYear, endMonth, endDay);
-        endDate.setDate(endDate.getDate() + 1); // 종료일 다음 날짜 (iCal 표준)
-        
-        if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
-          console.error(`Invalid date range for summer vacation: ${startDateStr} to ${endDateStr}`);
-          return;
+    // 여러 방학 기간 처리
+    const vacationTypes = ['여름방학', '겨울방학'];
+    
+    for (const vacationType of vacationTypes) {
+      if (this.recurringEvents[vacationType] && this.recurringEvents[vacationType].dates.length >= 3) {
+        try {
+          // 날짜 정렬
+          const dates = this.recurringEvents[vacationType].dates.sort();
+          
+          // 시작 날짜
+          const startDateStr = dates[0];
+          const startYear = parseInt(startDateStr.substring(0, 4));
+          const startMonth = parseInt(startDateStr.substring(4, 6)) - 1;
+          const startDay = parseInt(startDateStr.substring(6, 8));
+          
+          // 종료 날짜
+          const endDateStr = dates[dates.length - 1];
+          const endYear = parseInt(endDateStr.substring(0, 4));
+          const endMonth = parseInt(endDateStr.substring(4, 6)) - 1;
+          const endDay = parseInt(endDateStr.substring(6, 8));
+          
+          const startDate = new Date(startYear, startMonth, startDay);
+          const endDate = new Date(endYear, endMonth, endDay);
+          endDate.setDate(endDate.getDate() + 1); // 종료일 다음 날짜 (iCal 표준)
+          
+          if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+            console.error(`Invalid date range for ${vacationType}: ${startDateStr} to ${endDateStr}`);
+            continue;
+          }
+          
+          this.calendar.createEvent({
+            start: startDate,
+            end: endDate,
+            allDay: true,
+            summary: vacationType,
+            description: `${vacationType} 기간`,
+            location: this.schoolName,
+            uid: `neis-${startYear}-${vacationType}`
+          });
+          
+          console.log(`Created ${vacationType} event from ${startDate.toISOString()} to ${endDate.toISOString()}`);
+        } catch (error) {
+          console.error(`Error creating recurring ${vacationType} event:`, error);
         }
-        
-        this.calendar.createEvent({
-          start: startDate,
-          end: endDate,
-          allDay: true,
-          summary: '여름방학',
-          description: '여름방학 기간',
-          location: this.schoolName,
-          uid: `neis-${startYear}-summer-vacation`
-        });
-        
-        console.log(`Created summer vacation event from ${startDate.toISOString()} to ${endDate.toISOString()}`);
-      } catch (error) {
-        console.error('Error creating recurring summer vacation event:', error);
       }
     }
   }
@@ -223,9 +219,15 @@ class CalendarGenerator {
    * 해당 이벤트가 반복 이벤트에 포함되는지 확인
    */
   isPartOfRecurringEvent(event) {
-    if (event.EVENT_NM === '여름방학' && this.recurringEvents['여름방학'] && 
-        this.recurringEvents['여름방학'].dates.includes(event.AA_YMD)) {
-      return true;
+    // 여름방학과 겨울방학을 처리
+    const vacationTypes = ['여름방학', '겨울방학'];
+    
+    for (const vacationType of vacationTypes) {
+      if (event.EVENT_NM === vacationType && 
+          this.recurringEvents[vacationType] && 
+          this.recurringEvents[vacationType].dates.includes(event.AA_YMD)) {
+        return true;
+      }
     }
     
     return false;
@@ -237,6 +239,7 @@ class CalendarGenerator {
   getEventCategory(event) {
     const name = event.EVENT_NM;
     
+    // 모든 타입의 이벤트를 인식하도록 확장
     if (name.includes('휴업일') || name.includes('공휴일') || name.includes('휴일') || 
         name.includes('개교기념일') || name === '현충일' || name === '3·1절' || 
         name === '어린이날' || name === '부처님오신날') {
@@ -247,7 +250,7 @@ class CalendarGenerator {
       return '방학/입학';
     }
     
-    if (name.includes('고사') || name.includes('평가')) {
+    if (name.includes('고사') || name.includes('평가') || name.includes('시험')) {
       return '시험';
     }
     
