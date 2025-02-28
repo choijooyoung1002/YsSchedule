@@ -43,8 +43,8 @@ class NeisClient {
           Type: 'json',
           ATPT_OFCDC_SC_CODE: this.atptOfcdcScCode,
           SD_SCHUL_CODE: this.sdSchulCode,
-          TI_FROM_YMD: startDate, 
-          TI_TO_YMD: endDate, 
+          AA_FROM_YMD: startDate, 
+          AA_TO_YMD: endDate, 
         },
         timeout: 10000 // 타임아웃 10초 설정
       });
