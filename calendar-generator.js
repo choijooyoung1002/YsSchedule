@@ -6,331 +6,126 @@ const NeisClient = require('./neis-client');
 class CalendarGenerator {
   constructor(schoolName = '학교 일정') {
     this.schoolName = schoolName;
-    
-    // ical-generator 라이브러리 초기화 수정
     this.calendar = ical.default({
       name: this.schoolName,
-      timezone: 'Asia/Seoul', 
-      ttl: 60 * 60 // 1시간마다 업데이트
+      timezone: 'Asia/Seoul',
+      ttl: 60 * 60
     });
     
-    // 일정을 날짜별로 그룹화하기 위한 객체
-    this.eventsByDate = {};
+    // 토요휴업일만 제외
+    this.filteredEvents = ['토요휴업일'];
     
-    // 반복 이벤트 패턴 (예: 토요휴업일, 방학 등)
-    this.recurringEvents = {};
-    
-    // 필터링을 비활성화 (모든 이벤트 포함)
-    this.filteredEvents = ["토토요휴업일","일요휴업일"]; // 빈 배열로 변경하여 필터링 비활성화
+    // 연속 이벤트 추적용
+    this.currentEvents = new Map(); // 현재 진행 중인 이벤트들 추적
   }
 
-  /**
-   * 날짜별로 이벤트를 그룹화
-   */
   addScheduleEvents(scheduleItems) {
     if (!Array.isArray(scheduleItems) || scheduleItems.length === 0) {
-      console.warn('No schedule items to add to calendar');
+      console.warn('일정 데이터가 없습니다.');
       return;
     }
     
-    console.log(`Processing ${scheduleItems.length} schedule items...`);
+    console.log(`${scheduleItems.length}개의 일정 처리 중...`);
     
-    // 날짜별로 이벤트 그룹화 (필터링된 이벤트 제외)
-    for (const item of scheduleItems) {
-      // 필터링된 이벤트는 건너뛰기
-      if (this.filteredEvents.includes(item.EVENT_NM)) {
-        console.log(`Filtering out event: ${item.EVENT_NM} on ${item.AA_YMD}`);
+    // 날짜순으로 정렬
+    scheduleItems.sort((a, b) => a.AA_YMD.localeCompare(b.AA_YMD));
+    
+    for (const item of scheduleItems) { 
+      // 토요휴업일이거나 공휴일(DESCRIPTION에 '공휴일' 포함) 제외
+      if (this.filteredEvents.includes(item.EVENT_NM) || 
+          (item.DESCRIPTION && item.DESCRIPTION.includes('공휴일'))) {
         continue;
       }
       
-      const dateString = item.AA_YMD;
-      if (!this.eventsByDate[dateString]) {
-        this.eventsByDate[dateString] = [];
-      }
-      this.eventsByDate[dateString].push(item);
+      const currentDate = this.parseDate(item.AA_YMD);
       
-      // 방학 패턴 감지 (여름방학, 겨울방학 등)
-      if (item.EVENT_NM.includes('방학') && !item.EVENT_NM.includes('방학식')) {
-        const eventType = item.EVENT_NM;
-        if (!this.recurringEvents[eventType]) {
-          this.recurringEvents[eventType] = {
-            summary: eventType,
-            dates: []
-          };
-        }
-        this.recurringEvents[eventType].dates.push(dateString);
+      // CONTENT와 DESCRIPTION 합치기
+      let description = item.CONTENT || '';
+      if (item.DESCRIPTION) {
+        description = description ? `${description}\n${item.DESCRIPTION}` : item.DESCRIPTION;
       }
-    }
-    
-    // 날짜별로 그룹화된 이벤트를 캘린더에 추가
-    this.processGroupedEvents();
-    
-    // 반복 이벤트 생성
-    this.createRecurringEvents();
-    
-    console.log(`Processed events for ${Object.keys(this.eventsByDate).length} unique dates`);
-  }
-  
-  /**
-   * 날짜별로 그룹화된 이벤트 처리
-   */
-  processGroupedEvents() {
-    let eventCount = 0;
-    
-    for (const dateString in this.eventsByDate) {
-      const events = this.eventsByDate[dateString];
       
-      // 같은 날짜에 여러 이벤트가 있는 경우 처리
-      if (events.length > 1) {
-        // 모든 이벤트를 개별적으로 추가 (그룹화하지 않음)
-        for (const event of events) {
-          // 반복 이벤트에 포함된 경우 스킵
-          if (this.isPartOfRecurringEvent(event)) continue;
-          
-          this.createSingleEvent(dateString, event);
-          eventCount++;
-        }
-      } else if (events.length === 1) {
-        // 반복 이벤트에 포함된 경우 스킵
-        if (this.isPartOfRecurringEvent(events[0])) continue;
+      // 연속된 이벤트 처리
+    // if (this.currentEvents.has(item.EVENT_NM)) {
+    //   // 기존 이벤트가 있는 경우
+    //   const event = this.currentEvents.get(item.EVENT_NM);
+    //   const lastDate = new Date(event.end);
+    //   lastDate.setDate(lastDate.getDate() - 1); // end는 다음 날짜이므로 1일 뺌
+      
+    //   // 방학 관련 이벤트인지 확인 (여름방학, 겨울방학 등)
+    //   const isVacationEvent = item.EVENT_NM.includes('방학');
+      
+    //   if (this.isConsecutiveDate(lastDate, currentDate) || isVacationEvent) {
+    //     // 연속된 날짜인 경우 또는 방학 이벤트인 경우 종료일 업데이트
+    //     event.end = new Date(currentDate);
+    //     event.end.setDate(event.end.getDate() + 1);
         
-        this.createSingleEvent(dateString, events[0]);
-        eventCount++;
-      }
-    }
-    
-    console.log(`Created ${eventCount} individual events`);
-  }
-  
-  /**
-   * 한 날짜에 여러 이벤트가 있을 때 하나의 이벤트로 합침
-   */
-  createCombinedEvent(dateString, events) {
-    try {
-      const year = parseInt(dateString.substring(0, 4));
-      const month = parseInt(dateString.substring(4, 6)) - 1; // JS 월은 0부터 시작
-      const day = parseInt(dateString.substring(6, 8));
+    //     // 설명 업데이트 (필요한 경우)
+    //     if (description && !event.description().includes(description)) {
+    //       event.description(event.description() + '\n' + description);
+    //     }
+        
+    //     continue;
+    //   } else {
+    //     // 연속되지 않은 경우 새 이벤트 시작
+    //     this.currentEvents.delete(item.EVENT_NM);
+    //   }
+    // }
+      // 새로운 이벤트 생성
+      const endDate = new Date(currentDate);
+      endDate.setDate(endDate.getDate() + 1);
       
-      const eventDate = new Date(year, month, day);
-      if (isNaN(eventDate.getTime())) {
-        console.error(`Invalid date for combined event: ${dateString}`);
-        return;
-      }
-      
-      const eventNames = events.map(e => e.EVENT_NM);
-      const uniqueNames = [...new Set(eventNames)];
-      
-      const summary = uniqueNames.join(', ');
-      const description = events.map(e => `${e.EVENT_NM}${e.CONTENT ? `: ${e.CONTENT}` : ''}`).join('\n');
-      
-      this.calendar.createEvent({
-        start: eventDate,
+      const newEvent = this.calendar.createEvent({
+        start: currentDate,
+        end: endDate,
         allDay: true,
-        summary: summary,
+        summary: item.EVENT_NM,
         description: description,
-        location: this.schoolName,
-        uid: `neis-${dateString}-combined`
+        location: this.schoolName
       });
-    } catch (error) {
-      console.error(`Error creating combined event for ${dateString}:`, error);
-    }
-  }
-  
-  /**
-   * 단일 이벤트 생성
-   */
-  createSingleEvent(dateString, event) {
-    try {
-      const year = parseInt(dateString.substring(0, 4));
-      const month = parseInt(dateString.substring(4, 6)) - 1;
-      const day = parseInt(dateString.substring(6, 8));
       
-      const eventDate = new Date(year, month, day);
-      if (isNaN(eventDate.getTime())) {
-        console.error(`Invalid date for event ${event.EVENT_NM}: ${dateString}`);
-        return;
-      }
-      
-      this.calendar.createEvent({
-        start: eventDate,
-        allDay: true,
-        summary: event.EVENT_NM,
-        description: event.CONTENT || '',
-        location: this.schoolName,
-      });
-    } catch (error) {
-      console.error(`Error creating event ${event.EVENT_NM} for ${dateString}:`, error);
+      this.currentEvents.set(item.EVENT_NM, newEvent);
     }
+    
+    this.currentEvents.clear();
+    console.log(`일정 추가 완료`);
   }
   
-  /**
-   * 반복 이벤트 처리
-   */
-  createRecurringEvents() {
-    // 여러 방학 기간 처리
-    const vacationTypes = ['여름방학', '겨울방학'];
-    
-    for (const vacationType of vacationTypes) {
-      if (this.recurringEvents[vacationType] && this.recurringEvents[vacationType].dates.length >= 3) {
-        try {
-          // 날짜 정렬
-          const dates = this.recurringEvents[vacationType].dates.sort();
-          
-          // 시작 날짜
-          const startDateStr = dates[0];
-          const startYear = parseInt(startDateStr.substring(0, 4));
-          const startMonth = parseInt(startDateStr.substring(4, 6)) - 1;
-          const startDay = parseInt(startDateStr.substring(6, 8));
-          
-          // 종료 날짜
-          const endDateStr = dates[dates.length - 1];
-          const endYear = parseInt(endDateStr.substring(0, 4));
-          const endMonth = parseInt(endDateStr.substring(4, 6)) - 1;
-          const endDay = parseInt(endDateStr.substring(6, 8));
-          
-          const startDate = new Date(startYear, startMonth, startDay);
-          const endDate = new Date(endYear, endMonth, endDay);
-          endDate.setDate(endDate.getDate() + 1); // 종료일 다음 날짜 (iCal 표준)
-          
-          if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
-            console.error(`Invalid date range for ${vacationType}: ${startDateStr} to ${endDateStr}`);
-            continue;
-          }
-          
-          this.calendar.createEvent({
-            start: startDate,
-            end: endDate,
-            allDay: true,
-            summary: vacationType,
-            description: `${vacationType} 기간`,
-            location: this.schoolName,
-            uid: `neis-${startYear}-${vacationType}`
-          });
-          
-          console.log(`Created ${vacationType} event from ${startDate.toISOString()} to ${endDate.toISOString()}`);
-        } catch (error) {
-          console.error(`Error creating recurring ${vacationType} event:`, error);
-        }
-      }
-    }
+  isConsecutiveDate(date1, date2) {
+    const nextDay = new Date(date1);
+    nextDay.setDate(nextDay.getDate() + 1);
+    return nextDay.getTime() === date2.getTime();
   }
   
-  /**
-   * 해당 이벤트가 반복 이벤트에 포함되는지 확인
-   */
-  isPartOfRecurringEvent(event) {
-    // 여름방학과 겨울방학을 처리
-    const vacationTypes = ['여름방학', '겨울방학'];
-    
-    for (const vacationType of vacationTypes) {
-      if (event.EVENT_NM === vacationType && 
-          this.recurringEvents[vacationType] && 
-          this.recurringEvents[vacationType].dates.includes(event.AA_YMD)) {
-        return true;
-      }
-    }
-    
-    return false;
+  parseDate(dateString) {
+    const year = parseInt(dateString.substring(0, 4));
+    const month = parseInt(dateString.substring(4, 6)) - 1;
+    const day = parseInt(dateString.substring(6, 8));
+    return new Date(year, month, day);
   }
   
-  /**
-   * 이벤트 카테고리 결정
-   */
-  getEventCategory(event) {
-    const name = event.EVENT_NM;
-    
-    // 모든 타입의 이벤트를 인식하도록 확장
-    if (name.includes('휴업일') || name.includes('공휴일') || name.includes('휴일') || 
-        name.includes('개교기념일') || name === '현충일' || name === '3·1절' || 
-        name === '어린이날' || name === '부처님오신날') {
-      return '휴일';
-    }
-    
-    if (name.includes('방학') || name === '개학식' || name === '입학식' || name === '방학식') {
-      return '방학/입학';
-    }
-    
-    if (name.includes('고사') || name.includes('평가') || name.includes('시험')) {
-      return '시험';
-    }
-    
-    if (name.includes('교육') || name.includes('설명회')) {
-      return '교육';
-    }
-    
-    if (name.includes('활동') || name.includes('체험')) {
-      return '활동';
-    }
-    
-    return '일반';
-  }
-  
-  generateCalendar() {
-    try {
-      // 최종 캘린더 생성 전에 유효성 검사
-      const eventCount = this.calendar.events().length;
-      console.log(`Finalizing calendar with ${eventCount} events`);
-      
-      if (eventCount === 0) {
-        console.warn('Warning: No events in calendar');
-      }
-      
-      return this.calendar.toString();
-    } catch (error) {
-      console.error('Error generating calendar string:', error);
-      return 'ERROR: Failed to generate calendar';
-    }
-  }
-  
-  /**
-   * 생성된 캘린더를 파일로 저장
-   * @param {string} filePath - 저장할 파일 경로 (기본값: 'calendar.ics')
-   * @returns {boolean} - 저장 성공 여부
-   */
   saveToFile(filePath = 'calendar.ics') {
     try {
-      const calendarData = this.generateCalendar();
-      if (calendarData.startsWith('ERROR:')) {
-        console.error('Failed to generate calendar data');
-        return false;
-      }
-      
-      // 디렉토리 경로 확인 및 생성
-      const directory = path.dirname(filePath);
-      if (directory !== '.' && !fs.existsSync(directory)) {
-        fs.mkdirSync(directory, { recursive: true });
-      }
-      
-      fs.writeFileSync(filePath, calendarData, 'utf8');
-      console.log(`Calendar saved to ${filePath}`);
+      fs.writeFileSync(filePath, this.calendar.toString());
+      console.log(`캘린더가 ${filePath}에 저장되었습니다.`);
       return true;
     } catch (error) {
-      console.error(`Error saving calendar to file ${filePath}:`, error);
+      console.error('캘린더 저장 실패:', error);
       return false;
     }
   }
 }
 
-// 스크립트가 직접 실행될 때의 처리
+// 메인 실행 코드
 if (require.main === module) {
-  const schoolName = process.env.SCHOOL_NAME || '학교 일정';
-  const calendarGenerator = new CalendarGenerator(schoolName);
+  const generator = new CalendarGenerator('학교 일정');
   
-  // 비동기 함수로 실행
   (async () => {
     try {
-      // 필요한 환경 변수 확인
-      const startDate = "20250301";
-      const endDate = "20260228";
-      
-
-      // NeisClient 초기화 및 학사일정 데이터 가져오기
       const neisClient = new NeisClient();
-      console.log('학사일정 데이터를 가져오는 중...');
-      
       const scheduleData = await neisClient.getSchoolSchedule(
-        startDate,
-        endDate
+        "20250301",
+        "20260228"
       );
       
       if (!scheduleData || !scheduleData.length) {
@@ -338,31 +133,11 @@ if (require.main === module) {
         process.exit(1);
       }
       
-      console.log(`${scheduleData.length}개의 학사일정 항목을 가져왔습니다.`);
+      generator.addScheduleEvents(scheduleData);
+      generator.saveToFile('calendar.ics');
       
-      // 캘린더에 일정 추가
-      calendarGenerator.addScheduleEvents(scheduleData);
-      
-      // 일정이 추가되었는지 확인
-      const eventCount = calendarGenerator.calendar.events().length;
-      console.log(`캘린더에 추가된 이벤트 수: ${eventCount}`);
-      
-      if (eventCount === 0) {
-        console.warn('경고: 캘린더에 추가된 이벤트가 없습니다. 필터링 설정이나 데이터를 확인해주세요.');
-      }
-      
-      // 파일 저장
-      const filePath = process.env.CALENDAR_FILE_PATH || 'calendar.ics';
-      const saveResult = calendarGenerator.saveToFile(filePath);
-      
-      if (saveResult) {
-        console.log(`캘린더가 성공적으로 생성되었습니다: ${filePath}`);
-      } else {
-        console.error('캘린더 파일 생성에 실패했습니다.');
-        process.exit(1);
-      }
     } catch (error) {
-      console.error('캘린더 생성 중 오류가 발생했습니다:', error);
+      console.error('오류 발생:', error);
       process.exit(1);
     }
   })();
