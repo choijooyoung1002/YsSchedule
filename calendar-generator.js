@@ -81,7 +81,7 @@ class CalendarGenerator {
         start: currentDate,
         end: endDate,
         allDay: true,
-        summary: item.EVENT_NM,
+        summary: item.EVENT_NM+"("+item.THREE_GRADE_EVENT_YN+")",
         description: description,
         location: this.schoolName
       });
