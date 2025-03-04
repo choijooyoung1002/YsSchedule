@@ -86,7 +86,7 @@ class CalendarGenerator {
         location: this.schoolName
       });
       
-      this.currentEvents.set(items.EVENT_NM+"("+items.THREE_GRADE_EVENT_YN+")", newEvent);
+      this.currentEvents.set(item.EVENT_NM+"("+item.THREE_GRADE_EVENT_YN+")", newEvent);
     }
     
     this.currentEvents.clear();
