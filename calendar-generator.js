@@ -32,11 +32,7 @@ class CalendarGenerator {
     scheduleItems.sort((a, b) => a.AA_YMD.localeCompare(b.AA_YMD));
     
     for (const item of scheduleItems) { 
-let event_name;
-event_name = item.EVENT_NM;
-    if(items.THREE_GRADE_EVENT_YN == "N"){
-event_name += "(x)";}
-}else { event_name += "Y";}
+
       // 토요휴업일이거나 공휴일(DESCRIPTION에 '공휴일' 포함) 제외
       if (this.filteredEvents.includes(item.EVENT_NM) || 
           ( item.SBTR_DD_SC_NM.includes('공휴일'))) {
@@ -90,7 +86,7 @@ event_name += "(x)";}
         location: this.schoolName
       });
       
-      this.currentEvents.set(event_name, newEvent);
+      this.currentEvents.set(item.EVENT_NM+"("+items.THREE_GRADE_EVENT_YN+")", newEvent);
     }
     
     this.currentEvents.clear();
