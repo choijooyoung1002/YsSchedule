@@ -33,7 +33,7 @@ class CalendarGenerator {
     for (const item of scheduleItems) { 
       // 토요휴업일이거나 공휴일(DESCRIPTION에 '공휴일' 포함) 제외
       if (this.filteredEvents.includes(item.EVENT_NM) || 
-          (item.DESCRIPTION && item.SBTR_DD_SC_NM.includes('공휴일'))) {
+          ( item.SBTR_DD_SC_NM.includes('공휴일'))) {
         continue;
       }
       
